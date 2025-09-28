@@ -10,14 +10,18 @@ In the absense of any official support from SofaBaton for local API access to th
 2. Length: 02
   - Indicates 2 bytes of command data follow
   - This is the data length, not total packet length
-3. Command Type: 3f
-  - 0x3F (63 decimal) = Volume control command
-  - This tells the hub this is a volume-related operation
-4. Command Data: 02b9
-  - 02 = Sub-command (volume operation)
-  - b9 = Volume Down (specific action)
-  - Compare to Volume Up: 02b6 (0xB6 vs 0xB9)
-5. Checksum:
+3. Command: c3
+  - c3 - Discovery
+3. Data
+  - Command c3 - Discovery `a55a 0c c3 e0df 03862a23 c0a8283d 1f42 91`
+    - Session Identifier: e0df
+    - Device ID: 03862a23
+    - PC IP Address: c0a8283d
+    - PC Listeing Port: 1f42
+  - Command 01 - Auth request `a55a 00 01 00`
+  - Command 3F - Execute command `a55a 02 3f 02b6 f8`
+    - Data: 02b6
+4. Checksum:
   - Sum all the bytes and return low byte of the sum 
 ```py=
 total = sum(b & 0xFF for b in data) # Sum all bytes as unsigned
