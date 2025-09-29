@@ -6,7 +6,6 @@ SofaBaton Server - Listen for Hub Connection
 import socket
 import sys
 import time
-import threading
 import argparse
 
 class SofaBatonServer:
@@ -39,14 +38,6 @@ class SofaBatonServer:
         # Return only the low byte of the sum
         return total & 0xFF
 
-    def calculate_checksum(self, data):
-        """Calculate checksum like APK getCheckCode method"""
-        # Sum all bytes as unsigned values
-        total = sum(b for b in data)
-        
-        # Convert to 4-byte int and return last byte
-        total_bytes = total.to_bytes(4, byteorder='big')
-        return total_bytes[-1]
     
     def create_discovery_packet(self):
         """Create UDP discovery packet with local IP and proper checksum"""
@@ -79,14 +70,12 @@ class SofaBatonServer:
         ip_parts = [int(part) for part in local_ip.split('.')]
         packet.extend(ip_parts)
         
-        # Port number (8002 = 0x1f42, little-endian)
+        # Port number (8002 = 0x1f42, big-endian)
         port = self.listen_port
-        port_bytes = port.to_bytes(2, byteorder='little')
         port_bytes = port.to_bytes(2, byteorder='big')
         packet.extend(port_bytes)
         
         # Calculate and append checksum
-        checksum = self.calculate_checksum(packet)
         checksum = self.get_check_code(packet)
         packet.append(checksum)
         
@@ -238,15 +227,6 @@ class SofaBatonServer:
             print(f"❌ Command failed: {e}")
             return False
 
-    def send_volume_command(self, command_type="up"):
-        """Send volume command to hub (legacy method)"""
-        if command_type == "up":
-            return self.send_command(0x02, 0xB6)
-        elif command_type == "down":
-            return self.send_command(0x02, 0xB9)
-        else:
-            print(f"❌ Unknown command: {command_type}")
-            return False
     
     def interactive_mode(self):
         """Interactive mode for sending commands"""
@@ -329,29 +309,6 @@ class SofaBatonServer:
                 print(f"Error: {e}")
                 break
     
-    def listen_for_packets(self):
-        """Continuously listen for packets from hub"""
-        if not self.client_sock:
-            return
-            
-        try:
-            print("👂 Listening for packets from hub... (Ctrl+C to stop)")
-            while self.running:
-                try:
-                    self.client_sock.settimeout(1)
-                    data = self.client_sock.recv(1024)
-                    if data:
-                        print(f"📥 Hub sent: {data.hex()}")
-                    else:
-                        print("Hub disconnected")
-                        break
-                except socket.timeout:
-                    continue
-                except Exception as e:
-                    print(f"Error receiving data: {e}")
-                    break
-        except KeyboardInterrupt:
-            print("\n⏹ Stopping packet listener")
     
     def stop(self):
         """Stop the server"""
