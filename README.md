@@ -70,3 +70,26 @@ return total & 0xFF # Return only the low byte of the sum
       Hub->>TV: IR Signal
       Note over Hub, TV: Infrared transmission
 ```
+
+## Keys
+
+  | Button | Code            |
+  |--------|-----------------|
+  | b1     | Right           |
+  | b2     | Down            |
+  | b3     | Up?             |
+  | b4     | Back?           |
+  | b5     | Menu            |
+  | b6     | Volume Up       |
+  | b7     | Chan up?        |
+  | b8     | Mute            |
+  | b9     | Volume Down     |
+  |        | Chan Down       |
+  |        | Rewind          |
+  |        | Play/Stop       |
+  |        | Fast Forward    |
+  |        | Red             |
+  |        | Green           |
+  |        | Orange          |
+  |        | Purple          |
+  |        | Home            |
