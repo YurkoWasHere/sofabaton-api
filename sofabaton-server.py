@@ -1,24 +1,19 @@
 #!/usr/bin/env python3
 """
 SofaBaton Server - Listen for Hub Connection
-
-Flow from packet capture:
-1. Server listens on a port (likely 8002)
-2. Server sends UDP Packets to hub
-3. Hub initiates TCP connection to phone
-3. Normal handshake: a55a 0001 00 -> response
-4. Volume commands work: a55a 023f 02b6 f8 / a55a 023f 02b9 fb
 """
 
 import socket
 import sys
 import time
 import threading
+import argparse
 
 class SofaBatonServer:
-    def __init__(self, listen_port=8002, hub_ip=None):
+    def __init__(self, listen_port=8002, hub_ip=None, hub_id="03862a23"):
         self.listen_port = listen_port
         self.hub_ip = hub_ip
+        self.hub_id = hub_id
         self.server_sock = None
         self.client_sock = None
         self.authenticated = False
@@ -77,8 +72,8 @@ class SofaBatonServer:
         packet.extend([0xC3])        # Command
         packet.extend([0xE0, 0xDF])  # Identifier
         
-        # Device identifier (keep original - might be phone-specific)
-        packet.extend(bytes.fromhex("03862a23"))
+        # Hub identifier (configurable, default from original capture)
+        packet.extend(bytes.fromhex(self.hub_id))
         
         # Convert local IP to bytes
         ip_parts = [int(part) for part in local_ip.split('.')]
@@ -204,8 +199,8 @@ class SofaBatonServer:
             print(f"❌ Authentication failed: {e}")
             return False
     
-    def send_volume_command(self, command_type="up"):
-        """Send volume command to hub"""
+    def send_command(self, device_id=0x02, button_code=0xB6):
+        """Send command to hub with device ID and button code"""
         if not self.authenticated:
             print("❌ Not authenticated!")
             return False
@@ -215,20 +210,16 @@ class SofaBatonServer:
             return False
             
         try:
-            if command_type == "up":
-                # Volume up: a55a 023f 02b6 f8
-                packet = bytes([0xA5, 0x5A, 0x02, 0x3F, 0x02, 0xB6, 0xF8])
-                desc = "Volume Up"
-            elif command_type == "down":
-                # Volume down: a55a 023f 02b9 fb  
-                packet = bytes([0xA5, 0x5A, 0x02, 0x3F, 0x02, 0xB9, 0xFB])
-                desc = "Volume Down"
-            else:
-                print(f"❌ Unknown command: {command_type}")
-                return False
+            # Command format: a55a 02 3f [device_id] [button_code] [checksum]
+            packet = bytearray([0xA5, 0x5A, 0x02, 0x3F, device_id, button_code])
             
-            print(f"📤 Sending {desc}: {packet.hex()}")
-            self.client_sock.send(packet)
+            # Calculate checksum
+            checksum = self.get_check_code(packet)
+            packet.append(checksum)
+            
+            print(f"📤 Sending command - Device: {device_id:02x}, Button: {button_code:02x}")
+            print(f"📤 Packet: {packet.hex()}")
+            self.client_sock.send(bytes(packet))
             
             # Try to get response
             try:
@@ -246,6 +237,16 @@ class SofaBatonServer:
         except Exception as e:
             print(f"❌ Command failed: {e}")
             return False
+
+    def send_volume_command(self, command_type="up"):
+        """Send volume command to hub (legacy method)"""
+        if command_type == "up":
+            return self.send_command(0x02, 0xB6)
+        elif command_type == "down":
+            return self.send_command(0x02, 0xB9)
+        else:
+            print(f"❌ Unknown command: {command_type}")
+            return False
     
     def interactive_mode(self):
         """Interactive mode for sending commands"""
@@ -254,21 +255,73 @@ class SofaBatonServer:
             return
             
         print("\n🎮 Interactive Mode")
-        print("Commands: up, down, quit")
-        print("-" * 30)
+        print("Commands:")
+        print("  <device> <button>  - Custom command (hex values)")
+        print("  <button>           - Button to default device 02")
+        print("  quit               - Exit")
+        print("\nButton shortcuts available:")
+        print("  volumeup, volumedown, mute, menu, back")
+        print("  nav_up, nav_down, nav_right")
+        print("\nExamples:")
+        print("  02 b6              - Volume up (device 02, button b6)")
+        print("  01 a0              - Device 01, button a0")
+        print("  mute               - Mute (device 02)")
+        print("  menu               - Menu (device 02)")
+        print("  01 nav_up          - Navigation up (device 01)")
+        print("-" * 60)
         
         while self.running and self.client_sock:
             try:
-                cmd = input("Enter command (up/down/quit): ").strip().lower()
+                cmd = input("Enter command: ").strip().lower()
                 
                 if cmd == "quit":
                     break
-                elif cmd == "up":
-                    self.send_volume_command("up")
-                elif cmd == "down":
-                    self.send_volume_command("down")
+                elif " " in cmd:
+                    # Parse device ID and button code
+                    parts = cmd.split()
+                    if len(parts) == 2:
+                        try:
+                            device_id = int(parts[0], 16)
+                            # Handle button shortcuts in interactive mode
+                            button_shortcuts = {
+                                'volumeup': 0xb6, 'volumedown': 0xb9, 'volume_up': 0xb6, 'volume_down': 0xb9,
+                                'vol_up': 0xb6, 'vol_down': 0xb9, 'nav_up': 0xb3, 'nav_down': 0xb2, 
+                                'nav_right': 0xb1, 'mute': 0xb8, 'menu': 0xb5, 'back': 0xb4,
+                            }
+                            
+                            if parts[1].lower() in button_shortcuts:
+                                button_code = button_shortcuts[parts[1].lower()]
+                            else:
+                                button_code = int(parts[1], 16)
+                                
+                            if 0 <= device_id <= 255 and 0 <= button_code <= 255:
+                                self.send_command(device_id, button_code)
+                            else:
+                                print("❌ Device ID and button code must be 0-255 (00-FF)")
+                        except ValueError:
+                            print("❌ Invalid format. Use: <device_hex> <button_hex_or_shortcut>")
+                    else:
+                        print("❌ Use format: <device_hex> <button_hex_or_shortcut> (e.g., '02 b6' or '01 mute')")
                 else:
-                    print("Unknown command. Use: up, down, quit")
+                    # Single button command (uses default device 02)
+                    button_shortcuts = {
+                        'volumeup': 0xb6, 'volumedown': 0xb9, 'volume_up': 0xb6, 'volume_down': 0xb9,
+                        'vol_up': 0xb6, 'vol_down': 0xb9, 'up': 0xb6, 'down': 0xb9,
+                        'nav_up': 0xb3, 'nav_down': 0xb2, 'nav_right': 0xb1, 
+                        'mute': 0xb8, 'menu': 0xb5, 'back': 0xb4,
+                    }
+                    
+                    if cmd in button_shortcuts:
+                        self.send_command(0x02, button_shortcuts[cmd])
+                    else:
+                        try:
+                            button_code = int(cmd, 16)
+                            if 0 <= button_code <= 255:
+                                self.send_command(0x02, button_code)
+                            else:
+                                print("❌ Button code must be 0-255 (00-FF)")
+                        except ValueError:
+                            print("❌ Unknown command. Use: <button_shortcut>, <hex>, <device> <button>, or quit")
                     
             except KeyboardInterrupt:
                 break
@@ -311,31 +364,122 @@ class SofaBatonServer:
             self.server_sock = None
         print("🔌 Server stopped")
 
+def create_parser():
+    parser = argparse.ArgumentParser(
+        description='SofaBaton Server - Control SofaBaton Hub via TCP/UDP',
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Examples:
+  # Quick commands using shortcuts (uses default device 02)
+  %(prog)s 192.168.40.65 --button volumeup           # Volume up
+  %(prog)s 192.168.40.65 --button mute               # Mute
+  %(prog)s 192.168.40.65 --button menu               # Menu
+  %(prog)s 192.168.40.65 --button back               # Back button
+  %(prog)s 192.168.40.65 -b nav_up                   # Navigation up
+  
+  # Send hex commands (default device is '02')
+  %(prog)s 192.168.40.65 --button b6                 # Volume up (hex)
+  %(prog)s 192.168.40.65 --device 01 --button a0     # Button a0 to device 01
+  %(prog)s 192.168.40.65 -d 03 -b c5                 # Button c5 to device 03
+  
+  # Interactive mode for testing
+  %(prog)s 192.168.40.65 --interactive               # Interactive mode
+  
+  # Button shortcuts available:
+  #   volumeup, volumedown, mute, menu, back, nav_up, nav_down, nav_right
+        """
+    )
+    
+    # Required arguments
+    parser.add_argument('hub_ip', 
+                       help='SofaBaton hub IP address')
+    
+    # Mode selection (optional for special modes)
+    parser.add_argument('--interactive', action='store_true',
+                       help='Enter interactive mode for testing multiple commands')
+    
+    # Command arguments for send mode
+    parser.add_argument('--device', '-d',
+                       default='02',
+                       help='Target device ID (hex: 01, 02, 03, etc.) (default: 02)')
+    parser.add_argument('--button', '-b', 
+                       help='Button code (hex: a0, b6, b9, etc.) or shortcut (volumeup, mute, menu, back, nav_up, etc.)')
+    
+    # Optional arguments
+    parser.add_argument('--port', '-p',
+                       type=int, default=8002,
+                       help='TCP port (default: 8002)')
+    parser.add_argument('--hub-id', 
+                       default='03862a23',
+                       help='Hub identifier for UDP discovery (default: 03862a23)')
+    
+    return parser
+
 def main():
-    if len(sys.argv) < 3:
-        print("SofaBaton Server - Listen for Hub Connection")
-        print("=" * 50)
-        print("Usage:")
-        print(f"  {sys.argv[0]} <hub_ip> <mode> [port]")
-        print("")
-        print("Modes:")
-        print("  listen      - Just listen and show packets")
-        print("  auth        - UDP discovery + listen + authenticate")
-        print("  volume_up   - UDP discovery + listen + auth + send volume up")
-        print("  volume_down - UDP discovery + listen + auth + send volume down")
-        print("  interactive - UDP discovery + listen + auth + interactive mode")
-        print("")
-        print("Examples:")
-        print(f"  {sys.argv[0]} 192.168.40.65 listen")
-        print(f"  {sys.argv[0]} 192.168.40.65 auth 8002")
-        print(f"  {sys.argv[0]} 192.168.40.65 interactive")
-        return
+    parser = create_parser()
+    args = parser.parse_args()
     
-    hub_ip = sys.argv[1]
-    mode = sys.argv[2].lower()
-    port = int(sys.argv[3]) if len(sys.argv) > 3 else 8002
+    if args.interactive:
+        # Interactive mode
+        mode = 'interactive'
+        device_id = None
+        button_code = None
+    elif args.button is not None:
+        # Send mode (default)
+        # Parse device ID (has default)
+        try:
+            device_id = int(args.device, 16)
+            if not (0 <= device_id <= 255):
+                parser.error("device must be valid hex value (00-FF)")
+        except ValueError:
+            parser.error("device must be valid hex value")
+            
+        # Parse button code (allow shortcuts)
+        button_shortcuts = {
+            # Volume controls
+            'volumeup': 0xb6,
+            'volumedown': 0xb9,
+            'volume_up': 0xb6,
+            'volume_down': 0xb9,
+            'vol_up': 0xb6,
+            'vol_down': 0xb9,
+            
+            # Navigation (conflicts with volume, so using nav_ prefix)
+            'nav_up': 0xb3,
+            'nav_down': 0xb2,
+            'nav_right': 0xb1,
+            
+            # Common buttons
+            'mute': 0xb8,
+            'menu': 0xb5,
+            'back': 0xb4,
+        }
+        
+        if args.button.lower() in button_shortcuts:
+            button_code = button_shortcuts[args.button.lower()]
+        else:
+            try:
+                button_code = int(args.button, 16)
+                if not (0 <= button_code <= 255):
+                    parser.error("button must be valid hex value (00-FF)")
+            except ValueError:
+                parser.error("button must be valid hex value or shortcut (volumeup, mute, menu, back, nav_up, etc.)")
+        
+        mode = 'send'
+    else:
+        parser.error("Must specify --button or --interactive")
     
-    server = SofaBatonServer(listen_port=port, hub_ip=hub_ip)
+    server = SofaBatonServer(listen_port=args.port, hub_ip=args.hub_ip, hub_id=args.hub_id)
+    
+    print(f"🔧 Configuration:")
+    print(f"   Hub IP: {args.hub_ip}")
+    print(f"   Port: {args.port}")
+    print(f"   Hub ID: {args.hub_id}")
+    if mode == 'send':
+        print(f"   Command: Device {device_id:02x}, Button {button_code:02x}")
+    else:
+        print(f"   Mode: {mode}")
+    print()
     
     try:
         # Start server first - must be listening before UDP discovery
@@ -347,42 +491,28 @@ def main():
         print("⏳ Ensuring TCP server is ready...")
         time.sleep(1)
         
-        # Send UDP discovery if mode requires it (hub will connect back immediately)
-        if mode in ["auth", "volume_up", "volume_down", "interactive"]:
-            print("\n📡 Step 2: UDP Discovery")
-            if not server.send_udp_discovery():
-                return
+        # Send UDP discovery for all modes (always needed)
+        print("\n📡 Step 2: UDP Discovery")
+        if not server.send_udp_discovery():
+            return
         
         # Wait for hub connection (should happen quickly after UDP discovery)
         print("\n👂 Step 3: Wait for Hub Connection")
         if not server.wait_for_hub():
             return
         
-        if mode == "listen":
-            # Just listen for packets
-            server.listen_for_packets()
-            
-        elif mode in ["auth", "volume_up", "volume_down", "interactive"]:
-            # Authenticate first
-            print("\n🔐 Step 4: Authentication")
-            if server.handle_authentication():
-                if mode == "volume_up":
-                    print("\n📤 Step 5: Send Volume Up")
-                    server.send_volume_command("up")
-                elif mode == "volume_down":
-                    print("\n📤 Step 5: Send Volume Down (x2)")
-                    server.send_volume_command("down")
-                    time.sleep(0.5)  # Small delay between commands
-                    server.send_volume_command("down")
-                elif mode == "interactive":
-                    server.interactive_mode()
-                else:
-                    print("✅ Authentication successful - ready for commands")
+        # Authenticate first (always needed)
+        print("\n🔐 Step 4: Authentication")
+        if server.handle_authentication():
+            if mode == "send":
+                print(f"\n📤 Step 5: Send Command - Device: {device_id:02x}, Button: {button_code:02x}")
+                server.send_command(device_id, button_code)
+            elif mode == "interactive":
+                server.interactive_mode()
             else:
-                print("❌ Authentication failed")
-        
+                print("✅ Authentication successful - ready for commands")
         else:
-            print(f"❌ Unknown mode: {mode}")
+            print("❌ Authentication failed")
             
     except KeyboardInterrupt:
         print("\n⏹ Interrupted by user")
