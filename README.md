@@ -66,7 +66,7 @@ return total & 0xFF # Return only the low byte of the sum
       PC->>PC: Mark as authenticated
 
       PC->>Hub: Volume Down:
-      Note right of PC: 7-byt command
-      Hub->>TV: IR Signal (Volume Down)
+      Note right of PC: 7-byte command
+      Hub->>TV: IR Signal
       Note over Hub, TV: Infrared transmission
 ```
