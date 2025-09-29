@@ -226,89 +226,6 @@ class SofaBatonServer:
         except Exception as e:
             print(f"❌ Command failed: {e}")
             return False
-
-    
-    def interactive_mode(self):
-        """Interactive mode for sending commands"""
-        if not self.authenticated:
-            print("❌ Not authenticated - can't enter interactive mode")
-            return
-            
-        print("\n🎮 Interactive Mode")
-        print("Commands:")
-        print("  <device> <button>  - Custom command (hex values)")
-        print("  <button>           - Button to default device 02")
-        print("  quit               - Exit")
-        print("\nButton shortcuts available:")
-        print("  volumeup, volumedown, mute, menu, back")
-        print("  nav_up, nav_down, nav_right")
-        print("\nExamples:")
-        print("  02 b6              - Volume up (device 02, button b6)")
-        print("  01 a0              - Device 01, button a0")
-        print("  mute               - Mute (device 02)")
-        print("  menu               - Menu (device 02)")
-        print("  01 nav_up          - Navigation up (device 01)")
-        print("-" * 60)
-        
-        while self.running and self.client_sock:
-            try:
-                cmd = input("Enter command: ").strip().lower()
-                
-                if cmd == "quit":
-                    break
-                elif " " in cmd:
-                    # Parse device ID and button code
-                    parts = cmd.split()
-                    if len(parts) == 2:
-                        try:
-                            device_id = int(parts[0], 16)
-                            # Handle button shortcuts in interactive mode
-                            button_shortcuts = {
-                                'volumeup': 0xb6, 'volumedown': 0xb9, 'volume_up': 0xb6, 'volume_down': 0xb9,
-                                'vol_up': 0xb6, 'vol_down': 0xb9, 'nav_up': 0xb3, 'nav_down': 0xb2, 
-                                'nav_right': 0xb1, 'mute': 0xb8, 'menu': 0xb5, 'back': 0xb4,
-                            }
-                            
-                            if parts[1].lower() in button_shortcuts:
-                                button_code = button_shortcuts[parts[1].lower()]
-                            else:
-                                button_code = int(parts[1], 16)
-                                
-                            if 0 <= device_id <= 255 and 0 <= button_code <= 255:
-                                self.send_command(device_id, button_code)
-                            else:
-                                print("❌ Device ID and button code must be 0-255 (00-FF)")
-                        except ValueError:
-                            print("❌ Invalid format. Use: <device_hex> <button_hex_or_shortcut>")
-                    else:
-                        print("❌ Use format: <device_hex> <button_hex_or_shortcut> (e.g., '02 b6' or '01 mute')")
-                else:
-                    # Single button command (uses default device 02)
-                    button_shortcuts = {
-                        'volumeup': 0xb6, 'volumedown': 0xb9, 'volume_up': 0xb6, 'volume_down': 0xb9,
-                        'vol_up': 0xb6, 'vol_down': 0xb9, 'up': 0xb6, 'down': 0xb9,
-                        'nav_up': 0xb3, 'nav_down': 0xb2, 'nav_right': 0xb1, 
-                        'mute': 0xb8, 'menu': 0xb5, 'back': 0xb4,
-                    }
-                    
-                    if cmd in button_shortcuts:
-                        self.send_command(0x02, button_shortcuts[cmd])
-                    else:
-                        try:
-                            button_code = int(cmd, 16)
-                            if 0 <= button_code <= 255:
-                                self.send_command(0x02, button_code)
-                            else:
-                                print("❌ Button code must be 0-255 (00-FF)")
-                        except ValueError:
-                            print("❌ Unknown command. Use: <button_shortcut>, <hex>, <device> <button>, or quit")
-                    
-            except KeyboardInterrupt:
-                break
-            except Exception as e:
-                print(f"Error: {e}")
-                break
-    
     
     def stop(self):
         """Stop the server"""
@@ -446,7 +363,7 @@ def main():
         
         # Give server time to fully bind and be ready for connections
         print("⏳ Ensuring TCP server is ready...")
-        time.sleep(1)
+        #time.sleep(1)
         
         # Send UDP discovery for all modes (always needed)
         print("\n📡 Step 2: UDP Discovery")
@@ -464,8 +381,6 @@ def main():
             if mode == "send":
                 print(f"\n📤 Step 5: Send Command - Device: {device_id:02x}, Button: {button_code:02x}")
                 server.send_command(device_id, button_code)
-            elif mode == "interactive":
-                server.interactive_mode()
             else:
                 print("✅ Authentication successful - ready for commands")
         else:
