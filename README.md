@@ -14,10 +14,12 @@ In the absense of any official support from SofaBaton for local API access to th
   - c3 - Discovery
 3. Data
   - Command c3 - Discovery `a55a 0c c3 e0df 03862a23 c0a8283d 1f42 91`
-    - Session Identifier: e0df
-    - Device ID: 03862a23
-    - PC IP Address: c0a8283d
-    - PC Listeing Port: 1f42
+    - Session Identifier: `e0df`
+    - Device ID: `03862a23`
+    - PC IP Address: `c0a8283d`
+      - Hex version of each octet.  is `c0` is `192` `a8` = `168` etc...
+    - PC Listeing Port: `1f42`
+      - Port in Hex, ie `1f42` = `8002` 
   - Command 01 - Auth request `a55a 00 01 00`
   - Command 3F - Execute command `a55a 02 3f 02b6 f8`
     - Data: 02b6
